@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from scipy.ndimage import interpolation as inter
 import pytesseract
 
 
@@ -20,9 +21,42 @@ def reading_photo(path):
     cv2.imshow("Image_1", img)
     cv2.waitKey(0)
 
+    #функция определения правильности положения картинки
+    def determine_score(arr, angle):
+        data = inter.rotate(arr, angle, reshape=False, order=0)
+        histogram = np.sum(data, axis=1, dtype=float)
+        score = np.sum((histogram[1:] - histogram[:-1]) ** 2, dtype=float)
+        return histogram, score
+
     # переводим фото в бинарные данные
     # и избавляемся от всех шумов, свидением картинки к 2 цветам - чёрный(фон) и белый(надписи)
     thresh, img_bin = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
+
+    #нахождение угла поворота
+    scores = []
+    angles = np.arange(0, 360, 0.5)
+    for angle in angles:
+        histogram, score = determine_score(img_bin, angle)
+        scores.append(score)
+    best_angle = angles[scores.index(max(scores))]
+
+    # нахождение матрицы поворота
+    (height, width) = img_bin.shape[:2]
+    center = (width // 2, height // 2)
+    M = cv2.getRotationMatrix2D(center, best_angle, 1.0)
+
+    # нахождение повернутого изображения для изменения разрешения
+    abs_cos = abs(M[0, 0])
+    abs_sin = abs(M[0, 1])
+    bound_w = int(height * abs_sin + width * abs_cos)
+    bound_h = int(height * abs_cos + width * abs_sin)
+    M[0, 2] += bound_w / 2 - center[0]
+    M[1, 2] += bound_h / 2 - center[1]
+
+    # поворот изображения
+    img_bin = cv2.warpAffine(img_bin, M, (bound_w, bound_h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    img = cv2.warpAffine(img, M, (bound_w, bound_h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+
     # выводим это фото
     cv2.imshow("Image_2", img_bin)
     cv2.waitKey(0)
@@ -203,3 +237,4 @@ def data_to_excel(outer, row, countcol):
     # записываем в excel
     data.to_excel(writer)
     writer.save()
+
